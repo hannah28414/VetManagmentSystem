@@ -2,7 +2,7 @@
     --navy-dark: #012A4A;
     --navy-medium: #013A63;
     --brand-blue: #014F86;
-    --light-blue-bg: #e4eff3; /* Your lightest blue */
+    --light-blue-bg: #e4eff3; 
     --input-focus: #89C2D9;
 }
 
@@ -13,7 +13,7 @@ body {
 .login-card {
     background: rgb(215, 228, 232);
     border-radius: 20px;
-    overflow: hidden;
+    overflow: hidden; /* 3ashan my7slsh overflow of the image */
     box-shadow: 0 15px 35px rgba(1, 42, 74, 0.2);
     max-width: 1050px;
     width: 100%;
@@ -23,26 +23,14 @@ body {
 .login-banner {
     background: linear-gradient(to bottom, rgba(1, 79, 134, 0.4), var(--navy-dark)), 
                 url('../Image/login-hero.jpg.jpg'); /* Note the double .jpg */
-    background-size: cover;
+    background-size: cover; /* 3ashan y7ot el image 3ala kol el area */
     background-position: center;
     min-height: 650px;
     position: relative;
 }
 
-/* Making the Toggle Blue instead of Grey */
-.toggle-wrapper {
-    background-color: #E0EBF4; /* Very light blue */
-    padding: 5px;
-    border-radius: 10px;
-}
 
-.btn-check:checked + .btn-outline-primary {
-    background-color: white;
-    color: var(--navy-dark);
-    border-color: transparent;
-    font-weight: bold;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-}
+
 
 .btn-outline-primary {
     border: none;

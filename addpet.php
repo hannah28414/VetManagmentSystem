@@ -2,7 +2,21 @@
 include 'db.php';
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
+$is_ajax = strtolower($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'xmlhttprequest';
+$form_error = '';
+
 if (!isset($_SESSION['user_id'])) {
+    if ($is_ajax) {
+        header('Content-Type: application/json');
+        http_response_code(401);
+        echo json_encode([
+            'status' => 'error',
+            'message' => 'Please log in to continue.',
+            'redirect' => 'login.php'
+        ]);
+        exit();
+    }
+
     header('Location: login.php');
     exit();
 }
@@ -10,8 +24,8 @@ if (!isset($_SESSION['user_id'])) {
 // Check if form is submitted
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     // 1. Collect and sanitize data
-    $name    = mysqli_real_escape_string($conn, $_POST['n']);
-    $species = mysqli_real_escape_string($conn, $_POST['s']);
+    $name    = mysqli_real_escape_string($conn, $_POST['n'] ?? '');
+    $species = mysqli_real_escape_string($conn, $_POST['s'] ?? '');
     $user_id = $_SESSION['user_id'];
     
     // Default values if fields are missing in your table yet
@@ -19,18 +33,51 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $age     = isset($_POST['a']) ? (int) $_POST['a'] : 0;
     $weight  = isset($_POST['w']) ? mysqli_real_escape_string($conn, $_POST['w']) : 0;
 
-    // 2. The Insert Query
-    // IMPORTANT: Ensure your table "pets" has these columns: name, species, breed, age, weight, customer_id
-    $query = "INSERT INTO pets (name, species, breed, age, weight, customer_id) 
-              VALUES ('$name', '$species', '$breed', '$age', '$weight', '$user_id')";
-    
-    if (mysqli_query($conn, $query)) {
-        // Redirect to gallery on success
-        header("Location: mypet.php");
-        exit();
+    if (trim($name) === '' || trim($species) === '') {
+        if ($is_ajax) {
+            header('Content-Type: application/json');
+            http_response_code(400);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Pet name and species are required.'
+            ]);
+            exit();
+        }
+
+        $form_error = 'Pet name and species are required.';
     } else {
-        // Show error if it fails again
-        echo "<div class='alert alert-danger'>Error: " . mysqli_error($conn) . "</div>";
+        // 2. The Insert Query
+        // IMPORTANT: Ensure your table "pets" has these columns: name, species, breed, age, weight, customer_id
+        $query = "INSERT INTO pets (name, species, breed, age, weight, customer_id) 
+                  VALUES ('$name', '$species', '$breed', '$age', '$weight', '$user_id')";
+
+        if (mysqli_query($conn, $query)) {
+            if ($is_ajax) {
+                header('Content-Type: application/json');
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Patient record saved successfully.',
+                    'redirect' => 'mypet.php'
+                ]);
+                exit();
+            }
+
+            // Redirect to gallery on success
+            header("Location: mypet.php");
+            exit();
+        } else {
+            if ($is_ajax) {
+                header('Content-Type: application/json');
+                http_response_code(500);
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'Unable to save patient record. Please try again.'
+                ]);
+                exit();
+            }
+
+            $form_error = 'Unable to save patient record. Please try again.';
+        }
     }
 }
 
@@ -42,6 +89,12 @@ include 'layout_header.php';
         <h2 class="fw-bold" style="color: var(--brand-blue);">Register Patient</h2>
         <p class="text-muted">Initialize the medical record for your pet.</p>
     </div>
+
+    <div id="petAjaxMessage" class="alert mt-3" style="display: none;"></div>
+
+    <?php if ($form_error !== ''): ?>
+        <div class="alert alert-danger mt-3"><?php echo htmlspecialchars($form_error); ?></div>
+    <?php endif; ?>
 
     <form method="POST">
         <div class="mb-3">
@@ -88,5 +141,7 @@ include 'layout_header.php';
         </div>
     </form>
 </div>
+
+<script src="Js/addpet.js"></script>
 
 <?php include 'layout_footer.php'; ?>
