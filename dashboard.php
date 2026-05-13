@@ -121,6 +121,26 @@ include 'layout_header.php';
         cursor: pointer;
     }
     .pet-avatar:hover { transform: scale(1.15) rotate(5deg); }
+
+    .wellness-stat {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-align: center;
+    }
+    .wellness-stat-number {
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--brand-blue);
+    }
+    .wellness-stat-label {
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-top: 0.5rem;
+        text-transform: uppercase;
+        font-weight: 600;
+    }
 </style>
         
         <div class="d-flex justify-content-between align-items-center mb-5">
@@ -174,23 +194,21 @@ include 'layout_header.php';
             </div>
             <div class="col-md-4 d-flex flex-column gap-3">
                 
-                <a href="clinic_locator.php" class="card card-custom card-action-box h-50 p-3 text-decoration-none" style="background-color: var(--brand-light); border: 2px dashed #B8D4E3;">
-                    <i class="fas fa-map-marker-alt text-primary fs-5 mb-2"></i>
-                    <h5 class="fw-bold mb-1" style="color: var(--brand-blue);">Find a Clinic</h5>
-                    <p class="text-muted small mb-0">Locate specialized care near you.</p>
-                </a>
+                <div class="wellness-stat">
+                    <div class="wellness-stat-number"><?php echo $pet_count; ?></div>
+                    <div class="wellness-stat-label">Total Pets</div>
+                </div>
                 
-                <a href="book_appointment.php" class="card card-custom card-action-box h-50 p-3 text-decoration-none" style="background-color: var(--brand-blue); color: white;">
-                    <i class="far fa-calendar-plus fs-5 mb-2"></i>
-                    <h5 class="fw-bold mb-1">Book Appointment</h5>
-                    <p class="opacity-75 small mb-0">Schedule routine checkups or consults.</p>
-                </a>
+                <div class="wellness-stat">
+                    <div class="wellness-stat-number"><?php echo $appt_count; ?></div>
+                    <div class="wellness-stat-label">Scheduled Visits</div>
+                </div>
             </div>
         </div>
 
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="fw-bold" style="color: var(--brand-blue);">Upcoming Appointments</h5>
-            <a href="book_appointment.php" class="text-decoration-none small fw-bold">View Schedule <i class="fas fa-chevron-right ms-1"></i></a>
+            <a href="book_appointment.php" class="text-decoration-none small fw-bold">Book New Appointment <i class="fas fa-chevron-right ms-1"></i></a>
         </div>
 
         <?php if (isset($_GET['appt']) && $_GET['appt'] === 'cancelled'): ?>
@@ -209,12 +227,11 @@ include 'layout_header.php';
                 <?php
                 // Fetch UPCOMING APPOINTMENTS linked to the user's pets
                 $appt_query = "
-                    SELECT a.pet_id, a.clinic_id, p.name AS pet_name, p.species, a.date,
-                           s.name AS service_name, c.name AS clinic_name, c.address AS clinic_address
+                    SELECT a.pet_id, a.appointment_id, p.name AS pet_name, p.species, a.date,
+                           s.name AS service_name
                     FROM appointments a
                     JOIN pets p ON a.pet_id = p.pet_id
                     LEFT JOIN services s ON a.service_id = s.service_id
-                    LEFT JOIN clinics c ON a.clinic_id = c.clinic_id
                     WHERE p.customer_id = $user_id AND a.status = 'Scheduled'
                     ORDER BY a.date ASC LIMIT 3";
                 
@@ -225,9 +242,6 @@ include 'layout_header.php';
                     while ($appt = mysqli_fetch_assoc($appt_result)) {
                         $formatted_date = date("M d, Y - g:i A", strtotime($appt['date']));
                         $service = $appt['service_name'] ? $appt['service_name'] : "General Consult";
-                        $clinic_name = $appt['clinic_name'] ? htmlspecialchars($appt['clinic_name']) : 'Clinic not set';
-                        $clinic_address = $appt['clinic_address'] ? htmlspecialchars($appt['clinic_address']) : 'Address unavailable';
-                        $clinic_map_link = 'clinic_locator.php?clinic_id=' . (int)$appt['clinic_id'];
                         $row_animation_class = ($booking_success && $row_index === 0) ? ' new-appointment-success' : '';
 
                         echo '
@@ -237,11 +251,9 @@ include 'layout_header.php';
                                     <i class="fas fa-calendar-check text-white fs-4"></i>
                                 </div>
                                 <div>
-                                    <h6 class="fw-bold mb-1 fs-5" style="color: var(--brand-blue);">' . $appt['pet_name'] . ' <i class="fas fa-circle text-primary ms-1" style="font-size: 0.4rem; vertical-align: middle;"></i></h6>
-                                    <span class="badge bg-light text-primary me-2">' . $appt['species'] . '</span>
-                                    <small class="text-muted fw-bold">' . $service . '</small>
-                                    <div class="small text-secondary mt-1"><i class="fas fa-clinic-medical me-1"></i>' . $clinic_name . '</div>
-                                    <div class="small text-muted">' . $clinic_address . ' · <a href="' . $clinic_map_link . '" class="text-decoration-none">View on map</a></div>
+                                    <h6 class="fw-bold mb-1 fs-5" style="color: var(--brand-blue);">' . htmlspecialchars($appt['pet_name']) . ' <i class="fas fa-circle text-primary ms-1" style="font-size: 0.4rem; vertical-align: middle;"></i></h6>
+                                    <span class="badge bg-light text-primary me-2">' . htmlspecialchars($appt['species']) . '</span>
+                                    <small class="text-muted fw-bold">' . htmlspecialchars($service) . '</small>
                                 </div>
                             </div>
                             <div class="text-end me-4">
