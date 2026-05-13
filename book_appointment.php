@@ -1,5 +1,6 @@
 <?php
 include 'db.php';
+include 'db_schema_helper.php';  // Schema detection helper
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 if (!isset($_SESSION['user_id'])) {
@@ -7,10 +8,14 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-
-
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 $booking_error = '';
+
+// Check database schema for appointments table
+$appt_columns = get_appointments_columns($conn);
+$has_clinic_id = in_array('clinic_id', $appt_columns);
+$has_vet_id = in_array('vet_id', $appt_columns);
+
 $clinic_id = isset($_GET['clinic_id']) ? (int)$_GET['clinic_id'] : 1;
 $selected_service_id = isset($_GET['service_id']) ? (int)$_GET['service_id'] : (int)($_POST['service_id'] ?? 0);
 $selected_date = $_POST['appointment_date'] ?? date('Y-m-d');
@@ -18,7 +23,21 @@ $selected_time = $_POST['appointment_time'] ?? '11:30';
 $allowed_times = ['09:00', '09:30', '10:00', '10:30', '11:30', '13:00', '13:30'];
 
 $pets_result = mysqli_query($conn, "SELECT pet_id, name FROM pets WHERE customer_id = $user_id ORDER BY name ASC");
-$services_result = mysqli_query($conn, "SELECT service_id, name FROM services ORDER BY name ASC");
+
+// If vet_id column exists, fetch services that vets provide
+// Otherwise fetch all services
+if ($has_vet_id && isset($_GET['vet_id'])) {
+    $vet_id = (int)$_GET['vet_id'];
+    // Check if vet_services table exists
+    $vet_services_exists = mysqli_query($conn, "SHOW TABLES LIKE 'vet_services'");
+    if ($vet_services_exists && mysqli_num_rows($vet_services_exists) > 0) {
+        $services_result = mysqli_query($conn, "SELECT s.service_id, s.name FROM services s JOIN vet_services vs ON s.service_id = vs.service_id WHERE vs.vet_id = $vet_id ORDER BY s.name ASC");
+    } else {
+        $services_result = mysqli_query($conn, "SELECT * FROM services ORDER BY name ASC");
+    }
+} else {
+    $services_result = mysqli_query($conn, "SELECT * FROM services ORDER BY name ASC");
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_appointment'])) {
     $pet_id = (int)($_POST['pet_id'] ?? 0);
@@ -55,36 +74,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['book_appointment'])) 
                 mysqli_stmt_close($service_check_stmt);
             } else {
                 mysqli_stmt_close($service_check_stmt);
-            $appointment_timestamp = strtotime($appointment_date . ' ' . $appointment_time);
-            if ($appointment_timestamp === false) {
-                $booking_error = 'Please choose a valid appointment date and time.';
-            } elseif ($appointment_timestamp < time()) {
-                $booking_error = 'Please choose a future appointment date and time.';
-            } else {
-                $appointment_datetime = date('Y-m-d H:i:s', $appointment_timestamp);
+                $appointment_timestamp = strtotime($appointment_date . ' ' . $appointment_time);
+                if ($appointment_timestamp === false) {
+                    $booking_error = 'Please choose a valid appointment date and time.';
+                } elseif ($appointment_timestamp < time()) {
+                    $booking_error = 'Please choose a future appointment date and time.';
+                } else {
+                    $appointment_datetime = date('Y-m-d H:i:s', $appointment_timestamp);
 
-                $insert_stmt = mysqli_prepare(
-                    $conn,
-                    "INSERT INTO appointments (pet_id, clinic_id, service_id, date, status) VALUES (?, ?, ?, ?, 'Scheduled')"
-                );
-                mysqli_stmt_bind_param($insert_stmt, 'iiis', $pet_id, $clinic_id, $service_id, $appointment_datetime);
+                    // Build dynamic INSERT based on available columns
+                    $insert_data = [
+                        'pet_id' => $pet_id,
+                        'service_id' => $service_id,
+                        'date' => $appointment_datetime,
+                        'status' => 'Scheduled'
+                    ];
 
-                if (mysqli_stmt_execute($insert_stmt)) {
-                    mysqli_stmt_close($insert_stmt);
-                    header('Location: dashboard.php?booking=success');
-                    exit();
+                    if ($has_clinic_id) {
+                        $insert_data['clinic_id'] = $clinic_id;
+                    }
+                    if ($has_vet_id && isset($_POST['vet_id']) && (int)$_POST['vet_id'] > 0) {
+                        $insert_data['vet_id'] = (int)$_POST['vet_id'];
+                    }
+
+                    $insert_info = build_insert_query($conn, 'appointments', $insert_data);
+
+                    if ($insert_info) {
+                        $insert_stmt = mysqli_prepare($conn, $insert_info['sql']);
+                        if ($insert_stmt) {
+                            // Build type string dynamically
+                            $types = '';
+                            foreach ($insert_info['columns'] as $col) {
+                                if ($col === 'pet_id' || $col === 'service_id' || ($has_clinic_id && $col === 'clinic_id') || ($has_vet_id && $col === 'vet_id')) {
+                                    $types .= 'i';
+                                } else {
+                                    $types .= 's';
+                                }
+                            }
+                            mysqli_stmt_bind_param($insert_stmt, $types, ...$insert_info['data']);
+
+                            if (mysqli_stmt_execute($insert_stmt)) {
+                                mysqli_stmt_close($insert_stmt);
+                                header('Location: dashboard.php?booking=success');
+                                exit();
+                            }
+                            $booking_error = 'Could not save appointment. Please try again.';
+                            mysqli_stmt_close($insert_stmt);
+                        } else {
+                            $booking_error = 'Database error. Please try again.';
+                        }
+                    } else {
+                        $booking_error = 'Database schema error. Please contact administrator.';
+                    }
                 }
-
-                $booking_error = 'Could not save appointment. Please try again.';
-                mysqli_stmt_close($insert_stmt);
-            }
             }
         }
     }
 }
 
-$clinic_query = mysqli_query($conn, "SELECT name FROM clinics WHERE clinic_id = $clinic_id");
-$clinic = mysqli_fetch_assoc($clinic_query);
+// Only fetch clinic if clinic_id column exists
+$clinic = null;
+if ($has_clinic_id) {
+    $clinic_query = mysqli_query($conn, "SELECT name FROM clinics WHERE clinic_id = $clinic_id");
+    $clinic = mysqli_fetch_assoc($clinic_query);
+}
 
 include 'layout_header.php';
 ?>
@@ -92,7 +145,7 @@ include 'layout_header.php';
 <style>
     /* ANIMATIONS */
     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    
+
     .animate-in { animation: fadeIn 0.5s ease forwards; }
 
     /* STEPPER */
@@ -241,7 +294,7 @@ include 'layout_header.php';
         <img src="https://images.unsplash.com/photo-1543466835-00a7907e9de1?auto=format&fit=crop&w=100&q=80" width="45" height="45" class="rounded-circle shadow-sm">
         <div class="flex-grow-1">
             <p class="mb-0 text-muted fw-bold" style="font-size: 0.6rem; text-transform: uppercase;">Reviewing selection for</p>
-            <h6 class="mb-0 fw-bold">Bella • Wellness Checkup</h6>
+            <h6 class="mb-0 fw-bold">Bella &bull; Wellness Checkup</h6>
         </div>
         <button class="btn btn-sm btn-white bg-white shadow-sm rounded-pill px-3 fw-bold text-primary" style="font-size: 0.7rem;">Change</button>
     </div>
@@ -289,10 +342,13 @@ include 'layout_header.php';
         </div>
         <input type="hidden" name="appointment_date" id="appointment_date" value="<?php echo htmlspecialchars($selected_date); ?>">
         <input type="hidden" name="appointment_time" id="appointment_time" value="<?php echo htmlspecialchars($selected_time); ?>">
+        <?php if ($has_vet_id && isset($_GET['vet_id'])): ?>
+            <input type="hidden" name="vet_id" value="<?php echo (int)$_GET['vet_id']; ?>">
+        <?php endif; ?>
         <div class="d-flex justify-content-end mt-3">
-            <small class="text-muted">Clinic: <?php echo htmlspecialchars($clinic['name'] ?? 'Main Clinic'); ?></small>
+            <small class="text-muted"><?php echo $has_clinic_id && $clinic ? 'Clinic: ' . htmlspecialchars($clinic['name']) : 'Main Clinic'; ?></small>
         </div>
-    
+
 
     <div class="glass-card">
         <div class="row">
@@ -304,7 +360,7 @@ include 'layout_header.php';
                         <button type="button" id="nextMonthBtn" class="btn btn-sm rounded-circle calendar-header-btn"><i class="fas fa-chevron-right"></i></button>
                     </div>
                 </div>
-                
+
                 <div class="calendar-box">
                     <div class="calendar-weekdays">
                         <div class="day-label">S</div><div class="day-label">M</div><div class="day-label">T</div><div class="day-label">W</div><div class="day-label">T</div><div class="day-label">F</div><div class="day-label">S</div>
@@ -315,7 +371,7 @@ include 'layout_header.php';
 
             <div class="col-md-5 ps-md-5">
                 <h5 class="fw-bold mb-4">Available Times</h5>
-                
+
                 <p class="text-muted fw-bold mb-3" style="font-size: 0.65rem; text-transform: uppercase;"><i class="fas fa-sun me-2"></i>Morning</p>
                 <div class="row g-2 mb-4">
                     <div class="col-4"><div class="time-slot" data-time="09:00">09:00</div></div>
